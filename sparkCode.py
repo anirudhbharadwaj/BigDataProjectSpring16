@@ -2,7 +2,7 @@ from __future__ import print_function
 
 import sys
 from operator import add
-
+from polygon import *
 from pyspark import SparkContext
 from pyspark.accumulators import AccumulatorParam
 
@@ -16,6 +16,22 @@ class VectorAccumulatorParam(AccumulatorParam):
 		val1[3]=max(val1[3],val2[3])
 		return val1
 
+
+def simplePolygonTest(l):
+	val=l[1]
+	polygons=val[0]
+	pts=val[1]
+	ret=[]
+	for poly in polygons:
+		polygon=placeDict.value[str(poly)]
+		for loc in pts:
+			coord,count=loc.strip().split(":")
+			latLng=coord.strip().split(";")
+			pt=Point(float(latLng[0]),float(latLng[1]))
+			if polygon.contains(pt):
+				ret.append(str(poly)+";"+str(float(count)/len(polygons)))
+	return ret
+		
 #minX,minY,maxX,maxY ;; X is lng & Y is lat
 totalBound=[180.0,90.0,-180.0,-90.0]
 totalPoints=0
@@ -49,9 +65,46 @@ def getBounds(l):
 	
 def getPlaceBounds(l):
 	bound=getBounds(l)
-	ret=l+"\t"+str(bound[0])+";"+str(bound[1])+";"+str(bound[2])+";"+str(bound[3])
-	return ret
+	id=getPlaceId(l)
+	myList=[]
+	xminHash=getHashVal(0,float(bound[0]))
+	yminHash=getHashVal(1,float(bound[1]))
+	xmaxHash=getHashVal(0,float(bound[2]))
+	ymaxHash=getHashVal(1,float(bound[3]))
+	for i in range(xminHash,xmaxHash+1):
+		for j in range(yminHash,ymaxHash+1):
+			myList.append(str(i)+";"+str(j)+"::"+id)
+	return myList
 
+def getPlaceId(l):
+	line=l.strip().split(",")
+	return str(line[0].strip())
+	
+def getPolygonCoord(l):
+	line=l.strip().split(",")
+	vertices=[]
+	temp=line[6].strip().split(";")
+	first=Point(float(temp[1].strip()),float(temp[0].strip()))
+	for index in range(6,len(line)):
+		pt=line[index].strip().split(";")
+		x=float(pt[1].strip())
+		y=float(pt[0].strip())
+		vertex=Point(x,y)
+		vertices.append(vertex)
+	vertices.append(first)
+	poly=Polygon(vertices)
+	return poly
+
+def getPlaceName(l):
+	line=l.strip().split(",")
+	return str(line[1].strip())+","+str(line[2].strip())+","+str(line[3].strip())+","+str(line[4].strip())
+
+def getFinalVal(l):
+	val=l[1]
+	name=val[0].strip()
+	count=int(val[1])
+	return name+","+str(count)
+	
 def filterPoints(l):
 	line=l.strip().split(",")
 	ret=False
@@ -103,26 +156,36 @@ if __name__ == "__main__":
 	placeData = sc.textFile(sys.argv[1], 1)
 	#Read second file: professor data
 	taxiData = sc.textFile(sys.argv[2], 1)
+	sc.addPyFile("/home/abm491/project/polygon.py")
 	tb = sc.accumulator([180.0,90.0,-180.0,-90.0], VectorAccumulatorParam())
 	c1=taxiData.count()
+	#clean the places file
 	placeData=placeData.filter(filterPlaces)
+	#get the total bounds for filtering points
 	placeData.foreach(getTotalBounds)
-	placeData.map(getPlaceBounds)
-	print(tb.value)
+	pD=placeData.map(lambda l: (getPlaceId(l), getPolygonCoord(l))).collectAsMap()
+	placeDict=sc.broadcast(pD)
+	#create a rdd with key a serial_no and value as name,category,coordinates
+	placeName=placeData.map(lambda l: (getPlaceId(l), getPlaceName(l)))
 	totalBound=tb.value
-	#tBound=sc.broadcast(totalBound)
+	#filter crop the destination points
 	taxiData=taxiData.filter(filterPoints).distinct().map(lambda x: (cropCoordKey(x), cropCoordVal(x))).reduceByKey(add)
 	totalPoints=taxiData.count()
+	#constants for the dynamic grid index
 	c=int(totalPoints**0.5)
 	lngV=(totalBound[2]-totalBound[0])/c
 	latV=(totalBound[3]-totalBound[1])/c
-	#vX=sc.broadcast(lngV)
-	#vY=sc.broadcast(latV)
-	taxiData=taxiData.map(lambda x: (hashDest(x), hashDestVal(x))).sortByKey()
-	sampleData=taxiData.take(20)
-	print(" bounds are %s , %s , %s , %s" % (str(totalBound[0]), str(totalBound[1]),str(totalBound[2]), str(totalBound[3])))
-	print(" points reduced from %i to %i" %(c1,totalPoints))
-	for (word, count) in sampleData:
-		print("%s: %s" % (word.encode('utf-8'), count.encode('utf-8')))
+	#hash the destination points to grid
+	taxiData=taxiData.map(lambda x: (hashDest(x), hashDestVal(x))).groupByKey().map(lambda x : (x[0], list(x[1])))
+	#hash and list all the grids under each place-polygon's bounds
+	placeHashData=placeData.flatMap(getPlaceBounds).map(lambda x: (x.strip().split("::")[0].strip(), x.strip().split("::")[1].strip())).groupByKey().map(lambda x : (x[0], list(x[1])))
+	#join the list of places and destination points under each grid
+	joinedData=placeHashData.join(taxiData)
+	#check if points are present in a polygon and output a <key=serial_no value=count> pair
+	countData=joinedData.flatMap(simplePolygonTest).map(lambda x: (x.strip().split(";")[0].strip(), float(x.strip().split(";")[1].strip()))).reduceByKey(add)
+	#produce the final rdd to be written in file as 5 columns per row --> category,name,latitude,longitude,count
+	nameJoinData=placeName.join(countData).map(getFinalVal).collect()
+	for word in nameJoinData:
+		print("%s" % (word.encode('utf-8')))
 	#Stop Spark
 	sc.stop()
