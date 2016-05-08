@@ -3,6 +3,7 @@ from __future__ import print_function
 import sys
 from operator import add
 from polygon import *
+from datetime import datetime
 from pyspark import SparkContext
 from pyspark.accumulators import AccumulatorParam
 
@@ -25,11 +26,15 @@ def simplePolygonTest(l):
 	for poly in polygons:
 		polygon=placeDict.value[str(poly)]
 		for loc in pts:
-			coord,count=loc.strip().split(":")
+			coord,counts=loc.strip().split(":")
 			latLng=coord.strip().split(";")
 			pt=Point(float(latLng[0]),float(latLng[1]))
 			if polygon.contains(pt):
-				ret.append(str(poly)+";"+str(float(count)/len(polygons)))
+				myList=eval(str(counts))
+				newList = []
+				for x in myList:
+					newList.append(float(x)/len(polygons))
+				ret.append(str(poly)+";"+str(newList))
 	return ret
 		
 #minX,minY,maxX,maxY ;; X is lng & Y is lat
@@ -102,8 +107,11 @@ def getPlaceName(l):
 def getFinalVal(l):
 	val=l[1]
 	name=val[0].strip()
-	count=int(val[1])
-	return name+","+str(count)
+	counts=eval(str(val[1]))
+	ret=name
+	for x in counts:
+		ret+=","+str(int(x))
+	return ret
 	
 def filterPoints(l):
 	line=l.strip().split(",")
@@ -126,7 +134,27 @@ def cropCoordKey(l):
 
 def cropCoordVal(l):
 	line=l.strip().split(",")
-	return int(line[3].strip())
+	mydate=str(line[2]).strip()
+	d=datetime.strptime(mydate, "%Y-%m-%d %H:%M:%S")
+	totalcount= int(line[3].strip())
+	myList=[totalcount,0,0,0,0]
+	if d.isoweekday() in range(1, 6):
+		myList[1]=totalcount
+	elif d.isoweekday() in range(6, 8):
+		myList[2]=totalcount
+	if d.hour in range(7, 17):
+		myList[3]=totalcount
+	elif d.hour in range(17, 24) or d.hour in range(0, 7):
+		myList[4]=totalcount
+	return str(myList)
+		
+def addLists(l1,l2):
+	list3=[]
+	list1=eval(str(l1))
+	list2=eval(str(l2))
+	for index in range(0,len(list1)):
+		list3.append(list1[index]+list2[index])
+	return str(list3)
 	
 def getHashVal(dimension,val):
 	vector=1.0
@@ -169,7 +197,7 @@ if __name__ == "__main__":
 	placeName=placeData.map(lambda l: (getPlaceId(l), getPlaceName(l)))
 	totalBound=tb.value
 	#filter crop the destination points
-	taxiData=taxiData.filter(filterPoints).distinct().map(lambda x: (cropCoordKey(x), cropCoordVal(x))).reduceByKey(add)
+	taxiData=taxiData.filter(filterPoints).distinct().map(lambda x: (cropCoordKey(x), cropCoordVal(x))).reduceByKey(lambda a, b: addLists(a,b))
 	totalPoints=taxiData.count()
 	#constants for the dynamic grid index
 	c=int(totalPoints**0.5)
@@ -182,7 +210,7 @@ if __name__ == "__main__":
 	#join the list of places and destination points under each grid
 	joinedData=placeHashData.join(taxiData)
 	#check if points are present in a polygon and output a <key=serial_no value=count> pair
-	countData=joinedData.flatMap(simplePolygonTest).map(lambda x: (x.strip().split(";")[0].strip(), float(x.strip().split(";")[1].strip()))).reduceByKey(add)
+	countData=joinedData.flatMap(simplePolygonTest).map(lambda x: (x.strip().split(";")[0].strip(), x.strip().split(";")[1].strip())).reduceByKey(lambda a, b: addLists(a,b))
 	#produce the final rdd to be written in file as 5 columns per row --> category,name,latitude,longitude,count
 	nameJoinData=placeName.join(countData).map(getFinalVal).collect()
 	for word in nameJoinData:
