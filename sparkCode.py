@@ -31,10 +31,7 @@ def simplePolygonTest(l):
 		for poly in polygons:
 			polygon=placeDict.value[str(poly)]
 			if polygon.contains(pt):
-				if int(poly)>999:
-					ret.append(str(poly)+";"+str(eval(str(counts))))
-				else:
-					polys.append(str(poly))
+				polys.append(str(poly))
 		if len(polys)>0:
 			myList=eval(str(counts))
 			newList = []
