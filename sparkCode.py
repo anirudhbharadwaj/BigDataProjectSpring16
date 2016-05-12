@@ -23,18 +23,27 @@ def simplePolygonTest(l):
 	polygons=val[0]
 	pts=val[1]
 	ret=[]
-	for poly in polygons:
-		polygon=placeDict.value[str(poly)]
-		for loc in pts:
-			coord,counts=loc.strip().split(":")
-			latLng=coord.strip().split(";")
-			pt=Point(float(latLng[0]),float(latLng[1]))
+	for loc in pts:
+		coord,counts=loc.strip().split(":")
+		latLng=coord.strip().split(";")
+		pt=Point(float(latLng[0]),float(latLng[1]))
+		polys=[]
+		for poly in polygons:
+			polygon=placeDict.value[str(poly)]
 			if polygon.contains(pt):
-				myList=eval(str(counts))
-				newList = []
-				for x in myList:
-					newList.append(float(x)/len(polygons))
-				ret.append(str(poly)+";"+str(newList))
+				if int(poly)>999:
+					ret.append(str(poly)+";"+str(eval(str(counts))))
+				else:
+					polys.append(str(poly))
+		if len(polys)>0:
+			myList=eval(str(counts))
+			newList = []
+			for index in range(0,len(myList)-2):
+				newList.append(float(myList[index])/len(polys))
+			newList.append(myList[len(myList)-2])
+			newList.append(myList[len(myList)-1])
+			for p in polys:
+				ret.append(p+";"+str(newList))
 	return ret
 		
 #minX,minY,maxX,maxY ;; X is lng & Y is lat
@@ -117,13 +126,14 @@ def filterPoints(l):
 	line=l.strip().split(",")
 	ret=False
 	if line[0].strip().lower()!="vendorid":
-		x=float(line[9].strip())
-		y=float(line[10].strip())
-		if x>=totalBound[0] and x<=totalBound[2] and y>=totalBound[1] and y<=totalBound[3]:
-			if int(line[0].strip())==1 or int(line[0].strip())==2:
-				if int(line[3].strip())>0 and int(line[7].strip())>0 and int(line[7].strip())<7 and (str(line[8].strip()).lower()=="y" or str(line[8].strip()).lower()=="n"):
-					if int(line[11].strip())>0 and int(line[11].strip())<7 and float(line[18].strip())>=0.0:
-						ret=True;
+		if line[5] and line[6] and line[9] and line[10]:
+			x=float(line[9].strip())
+			y=float(line[10].strip())
+			if x>=totalBound[0] and x<=totalBound[2] and y>=totalBound[1] and y<=totalBound[3]:
+				if int(line[0].strip())==1 or int(line[0].strip())==2:
+					if int(line[3].strip())>0 and int(line[3].strip())<11 and float(line[4].strip())<1000.0 and int(line[7].strip())>0 and int(line[7].strip())<7 and (str(line[8].strip()).lower()=="y" or str(line[8].strip()).lower()=="n"):
+						if int(line[11].strip())>0 and int(line[11].strip())<7 and float(line[18].strip())>=0.0:
+							ret=True;
 	return ret;
 
 def cropCoordKey(l):
@@ -136,24 +146,41 @@ def cropCoordVal(l):
 	line=l.strip().split(",")
 	mydate=str(line[2]).strip()
 	d=datetime.strptime(mydate, "%Y-%m-%d %H:%M:%S")
+	dt=d.strftime('%Y-%m-%d')
 	totalcount= int(line[3].strip())
-	myList=[totalcount,0,0,0,0]
+	dist=float(line[4].strip())
+	tipMile=float(line[16].strip())
+	if dist>1.00:
+		tipMile=tipMile/int(dist)
+	myList=[totalcount,0,0,0,0,0,0,0,0,0,tipMile,1,d.year,d.month]
 	if d.isoweekday() in range(1, 6):
 		myList[1]=totalcount
 	elif d.isoweekday() in range(6, 8):
 		myList[2]=totalcount
-	if d.hour in range(7, 17):
+	if d.hour in range(6, 12):
 		myList[3]=totalcount
-	elif d.hour in range(17, 24) or d.hour in range(0, 7):
+	elif d.hour in range(12, 17):
 		myList[4]=totalcount
+	elif d.hour in range(17, 23):
+		myList[5]=totalcount
+	elif d.hour in range(23, 24) or d.hour in range(0, 5):
+		myList[6]=totalcount
+	if dt in holidays.value:
+		myList[7]=totalcount
+	if dist<=2.0:
+		myList[8]=totalcount
+	elif dist>=10.0:
+		myList[9]=totalcount
 	return str(myList)
 		
 def addLists(l1,l2):
 	list3=[]
 	list1=eval(str(l1))
 	list2=eval(str(l2))
-	for index in range(0,len(list1)):
+	for index in range(0,len(list1)-2):
 		list3.append(list1[index]+list2[index])
+	list3.append(list1[len(list1)-2])
+	list3.append(list1[len(list1)-1])
 	return str(list3)
 	
 def getHashVal(dimension,val):
@@ -175,7 +202,7 @@ def hashDestVal(l):
 	key=str(l[0])
 	val=str(l[1])
 	return key.strip()+":"+val.strip()
-	
+
 	
 if __name__ == "__main__":
 	#Create SparkContext 
@@ -184,9 +211,11 @@ if __name__ == "__main__":
 	placeData = sc.textFile(sys.argv[1], 1)
 	#Read second file: professor data
 	taxiData = sc.textFile(sys.argv[2], 1)
+	holidayData = sc.textFile(sys.argv[3], 1)
 	sc.addPyFile("/home/abm491/project/polygon.py")
 	tb = sc.accumulator([180.0,90.0,-180.0,-90.0], VectorAccumulatorParam())
-	c1=taxiData.count()
+	holidayDataList=holidayData.map(lambda x:x.strip().split(",")[0]).collect()
+	holidays=sc.broadcast(holidayDataList)
 	#clean the places file
 	placeData=placeData.filter(filterPlaces)
 	#get the total bounds for filtering points
