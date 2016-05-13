@@ -122,21 +122,19 @@ def getFinalVal(l):
 def filterPoints(l):
 	line=l.strip().split(",")
 	ret=False
-	if line[0].strip().lower()!="vendorid":
+	if len(line)>17 and ("vendor" not in line[0].strip().lower()):
 		if line[5] and line[6] and line[9] and line[10]:
 			x=float(line[9].strip())
 			y=float(line[10].strip())
 			if x>=totalBound[0] and x<=totalBound[2] and y>=totalBound[1] and y<=totalBound[3]:
-				if int(line[0].strip())==1 or int(line[0].strip())==2:
-					if int(line[3].strip())>0 and int(line[3].strip())<11 and float(line[4].strip())<1000.0 and int(line[7].strip())>0 and int(line[7].strip())<7 and (str(line[8].strip()).lower()=="y" or str(line[8].strip()).lower()=="n"):
-						if int(line[11].strip())>0 and int(line[11].strip())<7 and float(line[18].strip())>=0.0:
-							ret=True;
+				if int(line[3].strip())>0 and int(line[3].strip())<26 and float(line[4].strip())<1000.0 and ((not line[8]) or str(line[8].strip()).lower()=="y" or str(line[8].strip()).lower()=="n") and float(line[len(line)-1].strip())>=0.0:
+					ret=True;
 	return ret;
 
 def cropCoordKey(l):
 	line=l.strip().split(",")
-	x=str(round(float(line[9].strip()),6))
-	y=str(round(float(line[10].strip()),6))
+	x=str(float(line[9].strip()))
+	y=str(float(line[10].strip()))
 	return x+";"+y
 
 def cropCoordVal(l):
@@ -146,7 +144,10 @@ def cropCoordVal(l):
 	dt=d.strftime('%Y-%m-%d')
 	totalcount= int(line[3].strip())
 	dist=float(line[4].strip())
-	tipMile=float(line[16].strip())
+	tipIndex=len(line)-3
+	if len(line)>18:
+		tipIndex=len(line)-4
+	tipMile=float(line[tipIndex].strip())
 	if dist>1.00:
 		tipMile=tipMile/int(dist)
 	myList=[totalcount,0,0,0,0,0,0,0,0,0,tipMile,1,d.year,d.month]
@@ -227,8 +228,8 @@ if __name__ == "__main__":
 	totalPoints=taxiData.count()
 	#constants for the dynamic grid index
 	c=int(totalPoints**0.5)
-	lngV=(totalBound[2]-totalBound[0])/c
-	latV=(totalBound[3]-totalBound[1])/c
+	lngV=(totalBound[2]-totalBound[0])/max(1,c)
+	latV=(totalBound[3]-totalBound[1])/max(1,c)
 	#hash the destination points to grid
 	taxiData=taxiData.map(lambda x: (hashDest(x), hashDestVal(x))).groupByKey().map(lambda x : (x[0], list(x[1])))
 	#hash and list all the grids under each place-polygon's bounds
