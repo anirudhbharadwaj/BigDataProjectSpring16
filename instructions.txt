@@ -1,0 +1,18 @@
+•	You must have pyspark installed in the hadoop test environment.
+•	Clone the project from github link ‘https://github.com/anirudhbharadwaj/BigDataProjectSpring16.git' to your workspace.
+•	Create a new folder and place the files ‘sparkCode.py’ ,‘polygon.py’, ‘FamousLocations.txt’, ‘federalHolidays.txt’ and ‘join.py’ into this folder.
+•	Edit the sparkCode.py and change the line 'sc.addPyFile("/home/abm491/project/polygon.py")' (line 212) with 'sc.addPyFile("<path of this folder>”)’.
+•	Add both the .txt files to Hadoop filesystem.
+•	Download all the yellow taxi files from the link http://www.nyc.gov/html/tlc/html/about/trip_record_data.shtml for the years 2010 to 2015.
+•	Run the code for each month. This is done as follows,
+	Add a yellow_tripdata_<year>-<month>.csv to hadoop filesystem.
+	Run sparkCode.py   'spark-submit sparkCode.py FamousLocationsText.txt yellow_tripdata_<year>-<month>.csv federalHolidays.txt >> y_<2014>_<month>.txt'. The inputs must be arranged in exactly this order.
+	Remove that yellow_tripdata_<year>-<month>.csv from hadoop filesystem.
+•	After all the month-wise outputs are generated, create folders as 2010,2011,2012,2013,2014,2015 and place the files appropriately into the respective year folders. Create another folder called as ‘yearData’.
+•	Now run the python code ‘join.py’ to concatenate all results to a single file.
+Steps to reproduce the visualizations:
+Since the visualizations are created in Tableau, you would need to install Tableau on your system. There are 3 files that are needed to generate the visualization.
+•	Tableau file: YellowTaxiAnalysis_2010_2015. This file has all the configurations of datasets and creation of graphs.
+•	Points file: points_tableau.csv. This file has latitude and longitude values of points plotted to define polygons for the locations.
+•	Data file: YellowTaxiTrips_2010_2015.csv. This file is the one generated from the steps above. 
+The tableau file and points file are available in the github repository. Once all these files are saved in one location, open the Tableau file. Once open, you can see multiple workbooks in the form of tabs below, which are the different graphs. The graphs can then be used to plot different values using the filters on the right hand side of the graph.
